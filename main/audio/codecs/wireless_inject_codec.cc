@@ -104,11 +104,11 @@ void WirelessInjectCodec::EnableInput(bool enable) {
 }
 
 void WirelessInjectCodec::UdpTaskEntry(void* arg) {
-    static_cast<WirelessInjectCodec*>(arg)->UdpTaskLoop();
+    static_cast<WirelessInjectCodec*>(arg)->TcpTaskLoop();
     vTaskDelete(nullptr);
 }
 
-void WirelessInjectCodec::UdpTaskLoop() {
+void WirelessInjectCodec::TcpTaskLoop() {
     // 必须等 WiFi 连接后再建 socket：本任务启动时 lwIP/esp_netif 可能尚未
     // 初始化（AudioService 早于 WifiBoard），直接 socket() 会触发
     // tcpip_send_msg_wait_sem assert 导致启动循环。
@@ -122,38 +122,63 @@ void WirelessInjectCodec::UdpTaskLoop() {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     if (!connected) {
-        ESP_LOGE(TAG, "WiFi not connected, UDP inject disabled");
+        ESP_LOGE(TAG, "WiFi not connected, wireless inject disabled");
         return;
     }
     vTaskDelay(pdMS_TO_TICKS(2000));  // 等 DHCP 拿到 IP
-    ESP_LOGI(TAG, "WiFi connected, creating UDP socket");
 
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "Failed to create UDP socket");
-        return;
-    }
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(kUdpPort);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        ESP_LOGE(TAG, "Failed to bind UDP port %u", (unsigned)kUdpPort);
-        close(sock);
-        return;
-    }
-    ESP_LOGI(TAG, "UDP socket bound on %u", (unsigned)kUdpPort);
-
-    uint8_t buf[2048];
+    // 用 TCP 而非 UDP：跨网段 UDP 丢包严重，音频帧丢失会导致 ASR 只听到零星音节。
+    // TCP 是字节流，同一连接内顺序可靠送达；帧协议与之前一致。
     while (true) {
-        ssize_t n = recvfrom(sock, buf, sizeof(buf), 0, nullptr, nullptr);
-        if (n <= 0) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+        int srv = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (srv < 0) {
+            ESP_LOGE(TAG, "Failed to create TCP socket");
+            vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        for (ssize_t i = 0; i < n; i++) {
-            FeedByte(buf[i]);
+        int reuse = 1;
+        setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(kUdpPort);
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        if (bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+            ESP_LOGE(TAG, "Failed to bind TCP port %u", (unsigned)kUdpPort);
+            close(srv);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
+        if (listen(srv, 1) < 0) {
+            ESP_LOGE(TAG, "Failed to listen");
+            close(srv);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        ESP_LOGI(TAG, "TCP server listening on %u", (unsigned)kUdpPort);
+
+        while (true) {
+            sockaddr_in peer{};
+            socklen_t peer_len = sizeof(peer);
+            int cli = accept(srv, reinterpret_cast<sockaddr*>(&peer), &peer_len);
+            if (cli < 0) {
+                break;
+            }
+            ESP_LOGI(TAG, "Client connected");
+            // 一次只服务一个连接，客户端断开后回到 accept
+            uint8_t buf[2048];
+            while (true) {
+                ssize_t n = recv(cli, buf, sizeof(buf), 0);
+                if (n <= 0) {
+                    break;
+                }
+                for (ssize_t i = 0; i < n; i++) {
+                    FeedByte(buf[i]);
+                }
+            }
+            close(cli);
+            ESP_LOGI(TAG, "Client disconnected");
+        }
+        close(srv);
     }
 }
 
