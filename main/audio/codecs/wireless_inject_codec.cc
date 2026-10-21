@@ -49,7 +49,8 @@ void WirelessInjectCodec::Start() {
     if (udp_task_ == nullptr && ring_ != nullptr) {
         // 优先级 9：必须高于 audio_input(8)，否则开始录音后本任务被饿死，
         // 后续帧（含结束命令）收不到，表现为设备卡在 listening。
-        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 4096, this, 9, &udp_task_, 1);
+        // 但优先级高了又会饿死 main/audio 任务，所以收包循环里每帧主动让出 CPU。
+        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 8192, this, 9, &udp_task_, 1);
         ESP_LOGI(TAG, "Wireless inject task started, listening UDP %u", (unsigned)kUdpPort);
     }
 }
@@ -181,6 +182,8 @@ void WirelessInjectCodec::TcpTaskLoop() {
                 for (ssize_t i = 0; i < n; i++) {
                     FeedByte(buf[i]);
                 }
+                // 本任务优先级高于音频/主任务，必须主动让出，否则持续收包会把它们饿死
+                vTaskDelay(pdMS_TO_TICKS(1));
             }
             close(cli);
             ESP_LOGI(TAG, "Client disconnected");
