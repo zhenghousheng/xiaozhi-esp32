@@ -174,12 +174,22 @@ void WirelessInjectCodec::TcpTaskLoop() {
                 break;
             }
             ESP_LOGI(TAG, "Client connected");
-            // 一次只服务一个连接，客户端断开后回到 accept
+            // 一次只服务一个连接，客户端断开后回到 accept。
+            // 必须给 recv 设超时：否则一个连上但不发数据的僵尸连接会永久阻塞
+            // accept 循环，后续所有新连接都连不上（表现为 PC 发送超时）。
+            struct timeval tv;
+            tv.tv_sec = 30;
+            tv.tv_usec = 0;
+            setsockopt(cli, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
             uint8_t buf[2048];
             uint32_t rx_bytes = 0;
             uint32_t frames = 0;
             while (true) {
                 ssize_t n = recv(cli, buf, sizeof(buf), 0);
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    ESP_LOGW(TAG, "Idle connection timeout, closing");
+                    break;
+                }
                 if (n <= 0) {
                     break;
                 }
