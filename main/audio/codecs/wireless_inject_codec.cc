@@ -84,9 +84,11 @@ int WirelessInjectCodec::Read(int16_t* dest, int samples) {
         reinterpret_cast<uint8_t*>(dest)[i] = ring_[tail_];
         tail_ = (tail_ + 1) % kRingSize;
     }
-    // 剩余部分补静音：让 AFE/VAD 持续收到帧，说话结束后能及时判定
+    // 剩余部分补静音：让 AFE/VAD 持续收到帧，说话结束后能及时判定。
+    // under-run 时限速 10ms，防止全速喂帧导致 AFE FEED 环溢出。
     if (to_copy < need) {
         memset(reinterpret_cast<uint8_t*>(dest) + to_copy, 0, need - to_copy);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     xSemaphoreGive(mutex_);
     return samples;
