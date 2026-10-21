@@ -197,8 +197,22 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
             if (cmd_ == 0x01 && payload_len > 0) {
                 InjectAudio(payload_, payload_len);
             } else if (cmd_ == 0x02) {
-                ESP_LOGI(TAG, "Chat trigger from wireless");
-                Application::GetInstance().ToggleChatState();
+                // 幂等触发：仅在待命/提示状态生效，重复到达不会打断进行中的对话
+                auto& app = Application::GetInstance();
+                auto state = app.GetDeviceState();
+                if (state == kDeviceStateIdle || state == kDeviceStateNotifying) {
+                    ESP_LOGI(TAG, "Chat trigger from wireless");
+                    app.ToggleChatState();
+                } else {
+                    ESP_LOGW(TAG, "Ignore chat trigger, state=%d", (int)state);
+                }
+            } else if (cmd_ == 0x03) {
+                // 结束录音：服务端立即用已收音频做 ASR，无需等 VAD/超时
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateListening) {
+                    ESP_LOGI(TAG, "Stop listening from wireless");
+                    app.StopListening();
+                }
             }
             fsm_ = 0;
             break;
