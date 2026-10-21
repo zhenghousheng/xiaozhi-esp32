@@ -105,22 +105,26 @@ void WirelessInjectCodec::UdpTaskEntry(void* arg) {
 }
 
 void WirelessInjectCodec::UdpTaskLoop() {
-    // 必须等 WiFi STA 拿到 IP 后再建 socket：本任务启动时 lwIP/esp_netif
+    // 必须等网络栈就绪并拿到 IP 后再建 socket：本任务启动时 lwIP/esp_netif
     // 可能尚未初始化（AudioService 早于 WifiBoard），直接 socket() 会触发
     // tcpip_send_msg_wait_sem assert 导致启动循环。
-    esp_netif_t* sta = nullptr;
-    for (int i = 0; i < 600; i++) {  // 最多等 60 秒
-        sta = esp_netif_get_handle_from_ifkey("WIFI_STA");
-        if (sta != nullptr) {
+    // 不依赖固定 ifkey（各板型 netif 命名不同），遍历所有 netif 找有 IP 的。
+    bool ready = false;
+    for (int i = 0; i < 600 && !ready; i++) {  // 最多等 60 秒
+        for (esp_netif_t* nif = esp_netif_next(nullptr); nif != nullptr;
+             nif = esp_netif_next(nif)) {
             esp_netif_ip_info_t ip_info{};
-            if (esp_netif_get_ip_info(sta, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+            if (esp_netif_get_ip_info(nif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+                ready = true;
                 break;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (!ready) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
-    if (sta == nullptr) {
-        ESP_LOGE(TAG, "WIFI_STA netif not available, UDP inject disabled");
+    if (!ready) {
+        ESP_LOGE(TAG, "No netif with IP, UDP inject disabled");
         return;
     }
     ESP_LOGI(TAG, "Network ready, creating UDP socket");
