@@ -47,7 +47,9 @@ void WirelessInjectCodec::Start() {
 
     // UDP 任务：收 PC/手机灌入的音频帧。喇叭 I2S 输出不受影响。
     if (udp_task_ == nullptr && ring_ != nullptr) {
-        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 4096, this, 4, &udp_task_, 1);
+        // 优先级 9：必须高于 audio_input(8)，否则开始录音后本任务被饿死，
+        // 后续帧（含结束命令）收不到，表现为设备卡在 listening。
+        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 4096, this, 9, &udp_task_, 1);
         ESP_LOGI(TAG, "Wireless inject task started, listening UDP %u", (unsigned)kUdpPort);
     }
 }
