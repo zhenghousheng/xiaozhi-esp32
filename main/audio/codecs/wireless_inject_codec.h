@@ -54,7 +54,10 @@ private:
     uint8_t payload_[kMaxPayload];
 
     // 诊断计数（每个会话打印一次）
-    uint32_t injected_frames_ = 0;
+    uint32_t cmd1_count_ = 0;
+    uint32_t cmd2_count_ = 0;
+    uint32_t cmd3_count_ = 0;
+    uint32_t bad_frames_ = 0;
 };
 
 #endif  // _WIRELESS_INJECT_CODEC_H
