@@ -57,6 +57,7 @@ void WirelessInjectCodec::Start() {
 }
 
 void WirelessInjectCodec::InjectAudio(const uint8_t* data, size_t len) {
+    injected_frames_++;
     if (ring_ == nullptr || len == 0) {
         return;
     }
@@ -175,18 +176,23 @@ void WirelessInjectCodec::TcpTaskLoop() {
             ESP_LOGI(TAG, "Client connected");
             // 一次只服务一个连接，客户端断开后回到 accept
             uint8_t buf[2048];
+            uint32_t rx_bytes = 0;
+            uint32_t frames = 0;
             while (true) {
                 ssize_t n = recv(cli, buf, sizeof(buf), 0);
                 if (n <= 0) {
                     break;
                 }
+                rx_bytes += (uint32_t)n;
+                frames++;
                 for (ssize_t i = 0; i < n; i++) {
                     FeedByte(buf[i]);
                 }
-                // 让出 CPU：本任务有数据时会持续运行，必须给 opus_codec(2)/上行留出时间，
-                // 否则音频编码被饿死，设备卡在 listening 且上行极慢
+                // 本任务优先级高于音频/主任务，必须主动让出，否则持续收包会把它们饿死
                 vTaskDelay(pdMS_TO_TICKS(2));
             }
+            ESP_LOGI(TAG, "Session end: rx_bytes=%u recv_calls=%u injected=%u",
+                     (unsigned)rx_bytes, (unsigned)frames, (unsigned)injected_frames_);
             close(cli);
             ESP_LOGI(TAG, "Client disconnected");
         }
