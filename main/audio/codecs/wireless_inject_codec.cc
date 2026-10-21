@@ -72,19 +72,21 @@ void WirelessInjectCodec::InjectAudio(const uint8_t* data, size_t len) {
 }
 
 int WirelessInjectCodec::Read(int16_t* dest, int samples) {
-    if (ring_ == nullptr) {
-        return 0;
-    }
     size_t need = static_cast<size_t>(samples) * sizeof(int16_t);
+    if (ring_ == nullptr) {
+        memset(dest, 0, need);
+        return samples;  // 无缓冲时输出静音，保持 VAD 正常工作
+    }
     xSemaphoreTake(mutex_, portMAX_DELAY);
     size_t avail = (head_ + kRingSize - tail_) % kRingSize;
-    if (avail < need) {
-        xSemaphoreGive(mutex_);
-        return 0;  // 数据不够，等 PC/手机继续发
-    }
-    for (size_t i = 0; i < need; i++) {
+    size_t to_copy = (avail < need) ? avail : need;
+    for (size_t i = 0; i < to_copy; i++) {
         reinterpret_cast<uint8_t*>(dest)[i] = ring_[tail_];
         tail_ = (tail_ + 1) % kRingSize;
+    }
+    // 剩余部分补静音：让 AFE/VAD 持续收到帧，说话结束后能及时判定
+    if (to_copy < need) {
+        memset(reinterpret_cast<uint8_t*>(dest) + to_copy, 0, need - to_copy);
     }
     xSemaphoreGive(mutex_);
     return samples;
