@@ -172,6 +172,12 @@ public:
         return &led;
     }
 
+    // 设备常供 USB 电，禁用 WiFi 省电：MAX_MODEM 省电模式下
+    // PC 经 TCP 注入的音频会延迟数秒到达，且连接会被 lwIP 提前回收
+    void SetPowerSaveLevel(PowerSaveLevel level) override {
+        WifiBoard::SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    }
+
     virtual AudioCodec* GetAudioCodec() override {
 #ifdef USE_SERIAL_MIC
         // 无物理麦克风：PC/手机经 WiFi UDP(8765) 灌入 PCM 模拟麦克风（喇叭 I2S 不变）
