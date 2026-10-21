@@ -1,5 +1,8 @@
 #include "wifi_board.h"
 #include "codecs/no_audio_codec.h"
+#ifdef USE_SERIAL_MIC
+#include "codecs/wireless_inject_codec.h"
+#endif
 #include "display/oled_display.h"
 #include "system_reset.h"
 #include "application.h"
@@ -170,12 +173,18 @@ public:
     }
 
     virtual AudioCodec* GetAudioCodec() override {
+#ifdef USE_SERIAL_MIC
+        // 无物理麦克风：PC/手机经 WiFi UDP(8765) 灌入 PCM 模拟麦克风（喇叭 I2S 不变）
+        static WirelessInjectCodec audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+            AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
+#else
 #ifdef AUDIO_I2S_METHOD_SIMPLEX
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
 #else
         static NoAudioCodecDuplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS, AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN);
+#endif
 #endif
         return &audio_codec;
     }

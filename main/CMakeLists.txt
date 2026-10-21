@@ -5,6 +5,7 @@ set(SOURCES "audio/audio_codec.cc"
             "audio/demuxer/ogg_demuxer.cc"
             "notify/notify_player.cc"
             "audio/codecs/no_audio_codec.cc"
+            "audio/codecs/wireless_inject_codec.cc"
             "audio/codecs/box_audio_codec.cc"
             "audio/codecs/es8311_audio_codec.cc"
             "audio/codecs/es8374_audio_codec.cc"
@@ -1198,6 +1199,10 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
                     "LV_MEM_POOL_INCLUDE=\"lvgl_no_psram_pool.h\"")
             endif()
         endif()
+    endif()
+    # bread-compact-wifi 启用串口模拟麦克风（PC 经 UART0 灌入 PCM）
+    if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE USE_SERIAL_MIC=1)
     endif()
 endif()
 
