@@ -173,6 +173,7 @@ void WirelessInjectCodec::TcpTaskLoop() {
                 break;
             }
             ESP_LOGI(TAG, "Client connected");
+            cmd1_count_ = cmd2_count_ = cmd3_count_ = bad_frames_ = 0;
             // 一次只服务一个连接，客户端断开后回到 accept。
             // 必须给 recv 设超时：否则一个连上但不发数据的僵尸连接会永久阻塞
             // accept 循环，后续所有新连接都连不上（表现为 PC 发送超时）。
@@ -233,7 +234,12 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
         case 4:  // len 高字节
             len_ |= static_cast<uint16_t>(byte) << 8;
             idx_ = 0;
-            fsm_ = (len_ == 0) ? 6 : 5;
+            if (len_ == 0) {
+                ExecuteFrame();   // 无 payload，立即执行
+                fsm_ = 0;
+            } else {
+                fsm_ = 5;
+            }
             break;
         case 5:  // payload（超长部分计数后丢弃）
             if (idx_ < kMaxPayload) {
@@ -242,45 +248,45 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
                 idx_++;
             }
             if (idx_ >= len_) {
-                fsm_ = 6;
+                ExecuteFrame();   // 最后一个 payload 字节已收完，立即执行
+                fsm_ = 0;
             }
             break;
-        case 6: {  // 帧结束，执行
-            uint16_t payload_len = (len_ > kMaxPayload) ? kMaxPayload : len_;
-            if (cmd_ == 0x01 && payload_len > 0) {
-                cmd1_count_++;
-                InjectAudio(payload_, payload_len);
-            } else if (cmd_ == 0x02) {
-                // 直接切换对话状态（原始语义，勿加状态守卫）：
-                // listening 时 = CloseAudioChannel，服务端立即用已收音频做 ASR，
-                // 这是唯一可靠的「结束录音」路径；idle 时 = 开始对话。
-                cmd2_count_++;
-                ESP_LOGI(TAG, "Toggle chat from wireless, state=%d",
-                         (int)Application::GetInstance().GetDeviceState());
-                Application::GetInstance().ToggleChatState();
-            } else if (cmd_ == 0x03) {
-                // 备用停止命令：仅在录音中生效，不打断播放中的回答
-                cmd3_count_++;
-                auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateListening) {
-                    ESP_LOGI(TAG, "Stop listening from wireless");
-                    app.ToggleChatState();
-                } else {
-                    ESP_LOGW(TAG, "Ignore stop, state=%d", (int)app.GetDeviceState());
-                }
-            } else {
-                // 异常帧：状态机错位的证据
-                bad_frames_++;
-                if (bad_frames_ <= 5) {
-                    ESP_LOGW(TAG, "Bad frame: cmd=0x%02X len=%u idx=%u fsm_path",
-                             (unsigned)cmd_, (unsigned)len_, (unsigned)idx_);
-                }
-            }
-            fsm_ = 0;
-            break;
-        }
         default:
             fsm_ = 0;
             break;
+    }
+}
+
+void WirelessInjectCodec::ExecuteFrame() {
+    uint16_t payload_len = (len_ > kMaxPayload) ? kMaxPayload : len_;
+    if (cmd_ == 0x01 && payload_len > 0) {
+        cmd1_count_++;
+        InjectAudio(payload_, payload_len);
+    } else if (cmd_ == 0x02) {
+        // 直接切换对话状态（原始语义，勿加状态守卫）：
+        // listening 时 = CloseAudioChannel，服务端立即用已收音频做 ASR，
+        // 这是唯一可靠的「结束录音」路径；idle 时 = 开始对话。
+        cmd2_count_++;
+        ESP_LOGI(TAG, "Toggle chat from wireless, state=%d",
+                 (int)Application::GetInstance().GetDeviceState());
+        Application::GetInstance().ToggleChatState();
+    } else if (cmd_ == 0x03) {
+        // 备用停止命令：仅在录音中生效，不打断播放中的回答
+        cmd3_count_++;
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateListening) {
+            ESP_LOGI(TAG, "Stop listening from wireless");
+            app.ToggleChatState();
+        } else {
+            ESP_LOGW(TAG, "Ignore stop, state=%d", (int)app.GetDeviceState());
+        }
+    } else {
+        // 异常帧：状态机错位的证据
+        bad_frames_++;
+        if (bad_frames_ <= 5) {
+            ESP_LOGW(TAG, "Bad frame: cmd=0x%02X len=%u idx=%u",
+                     (unsigned)cmd_, (unsigned)len_, (unsigned)idx_);
+        }
     }
 }

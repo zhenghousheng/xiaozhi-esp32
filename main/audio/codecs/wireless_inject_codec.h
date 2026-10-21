@@ -39,6 +39,9 @@ private:
     static void UdpTaskEntry(void* arg);
     void TcpTaskLoop();
     void FeedByte(uint8_t byte);
+    // 帧收完整后立即执行。必须在收帧处同步调用，不能靠"下一个字节"
+    // 触发一个额外的 fsm 状态，否则那一个字节会被白白吞掉。
+    void ExecuteFrame();
 
     uint8_t* ring_ = nullptr;
     volatile size_t head_ = 0;
