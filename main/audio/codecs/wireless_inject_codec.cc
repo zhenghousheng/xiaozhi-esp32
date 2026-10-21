@@ -201,8 +201,9 @@ void WirelessInjectCodec::TcpTaskLoop() {
                 // 本任务优先级高于音频/主任务，必须主动让出，否则持续收包会把它们饿死
                 vTaskDelay(pdMS_TO_TICKS(2));
             }
-            ESP_LOGI(TAG, "Session end: rx_bytes=%u recv_calls=%u injected=%u",
-                     (unsigned)rx_bytes, (unsigned)frames, (unsigned)injected_frames_);
+            ESP_LOGI(TAG, "Session end: rx_bytes=%u recv_calls=%u cmd1=%u cmd2=%u cmd3=%u bad=%u fsm=%d",
+                     (unsigned)rx_bytes, (unsigned)frames, (unsigned)cmd1_count_,
+                     (unsigned)cmd2_count_, (unsigned)cmd3_count_, (unsigned)bad_frames_, fsm_);
             close(cli);
             ESP_LOGI(TAG, "Client disconnected");
         }
@@ -248,22 +249,32 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
         case 6: {  // 帧结束，执行
             uint16_t payload_len = (len_ > kMaxPayload) ? kMaxPayload : len_;
             if (cmd_ == 0x01 && payload_len > 0) {
+                cmd1_count_++;
                 InjectAudio(payload_, payload_len);
             } else if (cmd_ == 0x02) {
                 // 直接切换对话状态（原始语义，勿加状态守卫）：
                 // listening 时 = CloseAudioChannel，服务端立即用已收音频做 ASR，
                 // 这是唯一可靠的「结束录音」路径；idle 时 = 开始对话。
+                cmd2_count_++;
                 ESP_LOGI(TAG, "Toggle chat from wireless, state=%d",
                          (int)Application::GetInstance().GetDeviceState());
                 Application::GetInstance().ToggleChatState();
             } else if (cmd_ == 0x03) {
                 // 备用停止命令：仅在录音中生效，不打断播放中的回答
+                cmd3_count_++;
                 auto& app = Application::GetInstance();
                 if (app.GetDeviceState() == kDeviceStateListening) {
                     ESP_LOGI(TAG, "Stop listening from wireless");
                     app.ToggleChatState();
                 } else {
                     ESP_LOGW(TAG, "Ignore stop, state=%d", (int)app.GetDeviceState());
+                }
+            } else {
+                // 异常帧：状态机错位的证据
+                bad_frames_++;
+                if (bad_frames_ <= 5) {
+                    ESP_LOGW(TAG, "Bad frame: cmd=0x%02X len=%u idx=%u fsm_path",
+                             (unsigned)cmd_, (unsigned)len_, (unsigned)idx_);
                 }
             }
             fsm_ = 0;
