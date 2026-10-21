@@ -47,10 +47,10 @@ void WirelessInjectCodec::Start() {
 
     // UDP 任务：收 PC/手机灌入的音频帧。喇叭 I2S 输出不受影响。
     if (udp_task_ == nullptr && ring_ != nullptr) {
-        // 优先级与 audio_input 相同(8)：同级时间片轮转，既不会被音频任务饿死
-        // （否则设备卡在 listening 收不到后续帧），也不会反过来压死系统
-        // （实测 9 会让设备彻底卡死，连心跳都停）。
-        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 8192, this, 8, &udp_task_, 1);
+        // 优先级 2：必须不高于 opus_codec(2)，否则收包时会把编码任务饿死，
+        // 音频编不出去、上行堵死，表现为设备卡在 listening 且极慢。
+        // 收包循环里每帧再主动让出 1ms，给编码/上行留时间。
+        xTaskCreatePinnedToCore(UdpTaskEntry, "wireless_inject", 8192, this, 2, &udp_task_, 1);
         ESP_LOGI(TAG, "Wireless inject task started, listening UDP %u", (unsigned)kUdpPort);
     }
 }
@@ -182,8 +182,9 @@ void WirelessInjectCodec::TcpTaskLoop() {
                 for (ssize_t i = 0; i < n; i++) {
                     FeedByte(buf[i]);
                 }
-                // 本任务优先级高于音频/主任务，必须主动让出，否则持续收包会把它们饿死
-                vTaskDelay(pdMS_TO_TICKS(1));
+                // 让出 CPU：本任务有数据时会持续运行，必须给 opus_codec(2)/上行留出时间，
+                // 否则音频编码被饿死，设备卡在 listening 且上行极慢
+                vTaskDelay(pdMS_TO_TICKS(2));
             }
             close(cli);
             ESP_LOGI(TAG, "Client disconnected");
