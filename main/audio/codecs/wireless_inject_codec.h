@@ -14,7 +14,8 @@
 // 帧协议（PC/手机 -> 设备 IP:UDP 端口）：
 //   A5 5A <cmd:1> <len:2 小端> <payload:len>
 //   cmd=0x01: PCM 音频数据（16kHz/mono/int16）
-//   cmd=0x02: 触发一次对话（等同单击 BOOT 按钮）
+//   cmd=0x02: 触发对话（幂等，仅在 idle/notifying 生效，可重复发送）
+//   cmd=0x03: 结束录音（仅在 listening 生效，可重复发送）
 class WirelessInjectCodec : public NoAudioCodecSimplex {
 public:
     WirelessInjectCodec(int input_sample_rate, int output_sample_rate, gpio_num_t spk_bclk,
@@ -36,7 +37,7 @@ private:
     void EnableInput(bool enable) override;
 
     static void UdpTaskEntry(void* arg);
-    void UdpTaskLoop();
+    void TcpTaskLoop();
     void FeedByte(uint8_t byte);
 
     uint8_t* ring_ = nullptr;
