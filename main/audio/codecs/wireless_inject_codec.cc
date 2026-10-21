@@ -233,18 +233,14 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
             if (cmd_ == 0x01 && payload_len > 0) {
                 InjectAudio(payload_, payload_len);
             } else if (cmd_ == 0x02) {
-                // 幂等触发：仅在待命/提示状态生效，重复到达不会打断进行中的对话
-                auto& app = Application::GetInstance();
-                auto state = app.GetDeviceState();
-                if (state == kDeviceStateIdle || state == kDeviceStateNotifying) {
-                    ESP_LOGI(TAG, "Chat trigger from wireless");
-                    app.ToggleChatState();
-                } else {
-                    ESP_LOGW(TAG, "Ignore chat trigger, state=%d", (int)state);
-                }
+                // 直接切换对话状态（原始语义，勿加状态守卫）：
+                // listening 时 = CloseAudioChannel，服务端立即用已收音频做 ASR，
+                // 这是唯一可靠的「结束录音」路径；idle 时 = 开始对话。
+                ESP_LOGI(TAG, "Toggle chat from wireless, state=%d",
+                         (int)Application::GetInstance().GetDeviceState());
+                Application::GetInstance().ToggleChatState();
             } else if (cmd_ == 0x03) {
-                // 仅在录音中生效：结束录音让服务端立即 ASR。
-                // speaking/notifying 时忽略，避免打断正在播放的回答。
+                // 备用停止命令：仅在录音中生效，不打断播放中的回答
                 auto& app = Application::GetInstance();
                 if (app.GetDeviceState() == kDeviceStateListening) {
                     ESP_LOGI(TAG, "Stop listening from wireless");
