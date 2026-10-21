@@ -52,6 +52,9 @@ private:
     uint16_t len_ = 0;
     uint16_t idx_ = 0;
     uint8_t payload_[kMaxPayload];
+
+    // 诊断计数（每个会话打印一次）
+    uint32_t injected_frames_ = 0;
 };
 
 #endif  // _WIRELESS_INJECT_CODEC_H
