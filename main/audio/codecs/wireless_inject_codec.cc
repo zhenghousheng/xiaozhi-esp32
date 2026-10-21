@@ -57,7 +57,6 @@ void WirelessInjectCodec::Start() {
 }
 
 void WirelessInjectCodec::InjectAudio(const uint8_t* data, size_t len) {
-    injected_frames_++;
     if (ring_ == nullptr || len == 0) {
         return;
     }
