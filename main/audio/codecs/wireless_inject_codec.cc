@@ -232,12 +232,11 @@ void WirelessInjectCodec::FeedByte(uint8_t byte) {
                     ESP_LOGW(TAG, "Ignore chat trigger, state=%d", (int)state);
                 }
             } else if (cmd_ == 0x03) {
-                // 结束录音：服务端立即用已收音频做 ASR，无需等 VAD/超时
-                auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateListening) {
-                    ESP_LOGI(TAG, "Stop listening from wireless");
-                    app.StopListening();
-                }
+                // 强制切换：listening 时结束会话（服务端立即 ASR），
+                // 其他状态等同触发。用于收尾与清理卡住的会话。
+                ESP_LOGI(TAG, "Toggle chat from wireless, state=%d",
+                         (int)Application::GetInstance().GetDeviceState());
+                Application::GetInstance().ToggleChatState();
             }
             fsm_ = 0;
             break;
