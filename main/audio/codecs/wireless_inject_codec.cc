@@ -3,7 +3,7 @@
 
 #include <esp_log.h>
 #include <esp_heap_caps.h>
-#include <esp_netif.h>
+#include <esp_wifi.h>
 #include <lwip/sockets.h>
 #include <string.h>
 
@@ -105,29 +105,24 @@ void WirelessInjectCodec::UdpTaskEntry(void* arg) {
 }
 
 void WirelessInjectCodec::UdpTaskLoop() {
-    // 必须等网络栈就绪并拿到 IP 后再建 socket：本任务启动时 lwIP/esp_netif
-    // 可能尚未初始化（AudioService 早于 WifiBoard），直接 socket() 会触发
+    // 必须等 WiFi 连接后再建 socket：本任务启动时 lwIP/esp_netif 可能尚未
+    // 初始化（AudioService 早于 WifiBoard），直接 socket() 会触发
     // tcpip_send_msg_wait_sem assert 导致启动循环。
-    // 不依赖固定 ifkey（各板型 netif 命名不同），遍历所有 netif 找有 IP 的。
-    bool ready = false;
-    for (int i = 0; i < 600 && !ready; i++) {  // 最多等 60 秒
-        for (esp_netif_t* nif = esp_netif_next(nullptr); nif != nullptr;
-             nif = esp_netif_next(nif)) {
-            esp_netif_ip_info_t ip_info{};
-            if (esp_netif_get_ip_info(nif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
-                ready = true;
-                break;
-            }
+    bool connected = false;
+    for (int i = 0; i < 600 && !connected; i++) {  // 最多等 60 秒
+        wifi_ap_record_t ap_info{};
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            connected = true;
+            break;
         }
-        if (!ready) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    if (!ready) {
-        ESP_LOGE(TAG, "No netif with IP, UDP inject disabled");
+    if (!connected) {
+        ESP_LOGE(TAG, "WiFi not connected, UDP inject disabled");
         return;
     }
-    ESP_LOGI(TAG, "Network ready, creating UDP socket");
+    vTaskDelay(pdMS_TO_TICKS(2000));  // 等 DHCP 拿到 IP
+    ESP_LOGI(TAG, "WiFi connected, creating UDP socket");
 
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
