@@ -1043,15 +1043,13 @@ void Application::HandleStateChangedEvent() {
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
-                // For auto mode, wait for the playback queue to drain before enabling
-                // voice processing. This prevents audio truncation when STOP arrives
-                // late due to network jitter. Instead of blocking the main loop here,
-                // defer the start until MAIN_EVENT_PLAYBACK_DRAINED arrives.
-                if (listening_mode_ == kListeningModeAutoStop && !audio_service_.IsPlaybackIdle()) {
-                    pending_listening_start_ = true;
-                } else {
-                    StartListeningAudio();
-                }
+                // 音频注入场景下不能用 AutoStop 的延迟启动：它等 MAIN_EVENT_PLAYBACK_DRAINED，
+                // 而无麦克风注入时该事件可能永不到达，导致 EnableVoiceProcessing 一直不执行、
+                // 灌入的音频完全不上传（设备停在 listening 无任何反应）。
+                ESP_LOGI(TAG, "Listening: start audio now (popup=%d, proc_running=%d, idle=%d)",
+                         play_popup_on_listening_, audio_service_.IsAudioProcessorRunning(),
+                         audio_service_.IsPlaybackIdle());
+                StartListeningAudio();
             } else {
                 ConfigureWakeWordForListening();
             }
