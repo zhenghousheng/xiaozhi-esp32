@@ -1200,10 +1200,9 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
             endif()
         endif()
     endif()
-    # bread-compact-wifi 启用无线注入麦克风（PC/手机经 TCP 灌入 PCM）
-    if(CONFIG_BOARD_TYPE_BREAD_COMPACT_WIFI)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE USE_SERIAL_MIC=1)
-    endif()
+    # 注：无线注入麦克风（WiFi/PC 灌音频）已停用。
+    # 不定义 USE_SERIAL_MIC，bread-compact-wifi 走原版 NoAudioCodecSimplex，
+    # 直接使用板载 INMP441 I2S 麦克风（WS=GPIO4 / SCK=GPIO5 / SD=GPIO6）。
 endif()
 
 # Add generation rules
